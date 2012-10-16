@@ -1,0 +1,1 @@
+We are going to parallelize this code. It basically loads a bitmap image and rotate it for a defined angle. The function that we are going to work on is actually the calculateRotationFilter, using MPI. This example was described on the chapter of the book that we are using as a reference.

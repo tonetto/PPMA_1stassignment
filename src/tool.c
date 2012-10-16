@@ -1,8 +1,4 @@
 /***************************************
- * Author: Leonardo Tonetto
- * (34325) - Parallel Programming Models and Algorithms
- * Email: leo.tonetto@gmail.com
- *
  * Puzzle work 1b. Homework
  * Description: Simple C code using FreeImage Library to load a bitmap image
  *              that will be later on transformed, and this code should be
@@ -12,7 +8,6 @@
  *
  * Hint: to compile, just run make at the base directory
  *
- * TODO: clone the original bitmap
  ***************************************/
 #include <stdio.h>
 #include <math.h>
