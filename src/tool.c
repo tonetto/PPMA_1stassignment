@@ -12,79 +12,114 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+#include <mpi/mpi.h>
 #include "tool.h"
 
 #define _IMAGE_ "debian.bmp"
 
 int main(int argc, char *argv[])
 {
-  // sanity check
-  if (argc == 1) {
-    printf("You should pass " _IMAGE_ " as a parameter to this program\n");
-    return 1;
+  int numprocs;
+  int myid;
+  MPI_Status stat;
+
+  /* Starting MPI */
+  MPI_Init(&argc,&argv);
+  /* find out how big the SPMD world is */
+  MPI_Comm_size(MPI_COMM_WORLD,&numprocs);
+  /* and this processes' rank is */
+  MPI_Comm_rank(MPI_COMM_WORLD,&myid);
+
+  if (numprocs == 1) {
+    printf("We need at least two processes running, one Master and one Slave.\n"
+           "Please, execute it with mpirun -np x, where x >= 2\n");
+    goto out;
   }
-  myImage_t myBitmap;
-  myImage_t resultBMP;
-  // starting the FreeImage Library
-  FreeImage_Initialise(FALSE);
 
-  myBitmap.bitmap = FreeImage_Load(FIF_BMP, argv[1], BMP_DEFAULT);
-  if (myBitmap.bitmap) { // bitmap successfully loaded!
-    myBitmap.width    = FreeImage_GetWidth(myBitmap.bitmap);
-    myBitmap.height   = FreeImage_GetHeight(myBitmap.bitmap);
-    myBitmap.bytespp  = FreeImage_GetLine(myBitmap.bitmap) / myBitmap.width;
+  if (myid == 0) { // master
+    myImage_t myBitmap;
+    myImage_t resultBMP;
+    int i = 0;
 
-    resultBMP.width   = myBitmap.width;
-    resultBMP.height  = myBitmap.height;
-    resultBMP.bytespp = myBitmap.bytespp;
-    resultBMP.bitmap  = FreeImage_Allocate(myBitmap.width, myBitmap.height, (myBitmap.bytespp*8),
-                                           FI_RGBA_RED_MASK, FI_RGBA_GREEN_MASK, FI_RGBA_BLUE_MASK);
+    int lastLines = 0;
+    int linesPerProc = 0;
 
-    if (!resultBMP.bitmap) {
-      goto out_err;
-    }
+    // starting the FreeImage Library
+    FreeImage_Initialise(FALSE);
 
-    // The actual computation should go here
-    int *filterX = (int*)malloc(myBitmap.width * myBitmap.height * sizeof(int));
-    int *filterY = (int*)malloc(myBitmap.width * myBitmap.height * sizeof(int));
-    if (filterX == NULL) {
-      printf("Couldn't allocate memory. Exiting...\n");
-      goto out_err;
-    }
-    if (filterY == NULL) {
-      printf("Couldn't allocate memory. Exiting...\n");
+    myBitmap.bitmap = FreeImage_Load(FIF_BMP, argv[1], BMP_DEFAULT);
+    if (myBitmap.bitmap) { // bitmap successfully loaded!
+      myBitmap.width    = FreeImage_GetWidth(myBitmap.bitmap);
+      myBitmap.height   = FreeImage_GetHeight(myBitmap.bitmap);
+      myBitmap.bytespp  = FreeImage_GetLine(myBitmap.bitmap) / myBitmap.width;
+
+      resultBMP.width   = myBitmap.width;
+      resultBMP.height  = myBitmap.height;
+      resultBMP.bytespp = myBitmap.bytespp;
+      resultBMP.bitmap  = FreeImage_Allocate(myBitmap.width, myBitmap.height, (myBitmap.bytespp*8),
+                                             FI_RGBA_RED_MASK, FI_RGBA_GREEN_MASK, FI_RGBA_BLUE_MASK);
+
+      if (!resultBMP.bitmap) {
+        goto out_err;
+      }
+
+      // The actual computation should go here
+      int *filterX = (int*)malloc(myBitmap.width * myBitmap.height * sizeof(int));
+      int *filterY = (int*)malloc(myBitmap.width * myBitmap.height * sizeof(int));
+      if (filterX == NULL) {
+        printf("Couldn't allocate memory. Exiting...\n");
+        goto out_err;
+      }
+      if (filterY == NULL) {
+        printf("Couldn't allocate memory. Exiting...\n");
+        free(filterY);
+        goto out_err;
+      }
+
+      lastLines = myBitmap.height % (numprocs - 1);
+      linesPerProc = (myBitmap.height - lastLines) / numprocs;
+
+      for (i=1; i<numprocs ; i++) {
+        int data[4];
+        data[0] = (i-1) * (linesPerProc*myBitmap.height); // beginning of the array
+        data[1] = ((linesPerProc*myBitmap.height) * (i)) - 1;
+        data[2] = 
+      }
+
+      //calculateRotationFilter(myBitmap.width, myBitmap.height, 0.23, filterX, filterY);
+      //applyRotationFilter(&myBitmap, &resultBMP, filterX, filterY);
+
+      // save the results
+      if (FreeImage_Save(FIF_BMP, resultBMP.bitmap, "edited.bmp", 0)) {
+        printf("\nTransformed image saved.\n");
+      } else {
+        printf("\nProblem while trying to save the image.\n");
+      }just copy everything to your directory, and 
+      free(filterX);
       free(filterY);
+    } else {
+      printf("\nCouldn't load the image. Please make sure you're using " _IMAGE_ "\n");
+      printf("Or at least a 24-bit bitmap RGB encoded image.\n");
       goto out_err;
     }
 
-    calculateRotationFilter(myBitmap.width, myBitmap.height, 0.23, filterX, filterY);
-    applyRotationFilter(&myBitmap, &resultBMP, filterX, filterY);
-
-    // save the results
-    if (FreeImage_Save(FIF_BMP, resultBMP.bitmap, "edited.bmp", 0)) {
-      printf("\nTransformed image saved.\n");
-    } else {
-      printf("\nProblem while trying to save the image.\n");
+  out_err:
+    if (resultBMP.bitmap) {
+      // Needs to be called to avoid memory leak
+      FreeImage_Unload(resultBMP.bitmap);
     }
-    free(filterX);
-    free(filterY);
-  } else {
-    printf("\nCouldn't load the image. Please make sure you're using " _IMAGE_ "\n");
-    printf("Or at least a 24-bit bitmap RGB encoded image.\n");
-    goto out_err;
+    if (myBitmap.bitmap) {
+      // Needs to be called to avoid memory leak
+      FreeImage_Unload(myBitmap.bitmap);
+    }
+    // Finalizing the FreeImage Library
+    FreeImage_DeInitialise();
+  } else { // slaves
+    
   }
 
- out_err:
-  if (resultBMP.bitmap) {
-    // Needs to be called to avoid memory leak
-    FreeImage_Unload(resultBMP.bitmap);
-  }
-  if (myBitmap.bitmap) {
-    // Needs to be called to avoid memory leak
-    FreeImage_Unload(myBitmap.bitmap);
-  }
-  // Finalizing the FreeImage Library
-  FreeImage_DeInitialise();
+ out:
+  MPI_Finalize();
   return 0;
 }
 
